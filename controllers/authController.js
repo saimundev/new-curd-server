@@ -31,7 +31,7 @@ export const singUp = async (req, res) => {
     const createToken = jwt.sign({ email: email }, process.env.JWT_SECRET, {
       expiresIn: "10m",
     });
-    const sendLink = `http://localhost:3000/email-verification-success?token=${createToken}`;
+    const sendLink = `https://curd-mm47.onrender.com/email-verification-success?token=${createToken}`;
 
     //send email user config
     const transporter = nodemailer.createTransport({
