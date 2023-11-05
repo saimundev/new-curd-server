@@ -147,9 +147,8 @@ export const signIn = async (req, res) => {
 };
 
 export const getUser = async (req, res) => {
-  const { userId } = req.params;
   try {
-    const user = await AuthModel.findById({ _id: userId })
+    const user = await AuthModel.find({});
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error" })
