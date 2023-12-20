@@ -3,8 +3,9 @@ import bcrypt from "bcrypt";
 import joi from "joi";
 import genAuthToken from "../utils/genAuthToken.js";
 import nodemailer from "nodemailer";
-import jwt from "jsonwebtoken";
+import OtpModel from "../models/otp.js";
 
+//create user
 export const singUp = async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -27,11 +28,28 @@ export const singUp = async (req, res) => {
     if (isUserExist)
       return res.status(400).json({ message: "User Already exist" });
 
-    //create email token
-    const createToken = jwt.sign({ email: email }, process.env.JWT_SECRET, {
-      expiresIn: "10m",
+    const user = await AuthModel.create({
+      name,
+      email,
+      password: hashPassword,
     });
-    const sendLink = `https://new-curd-client.vercel.app/email-verification-success?token=${createToken}`;
+
+    sendOTP({ _id: user._id, email: user.email });
+
+    //create user token
+    const token = genAuthToken(user);
+    res.status(200).json({ token });
+  } catch (error) {
+    res.status(500).json({ message: error });
+    console.log(error);
+  }
+};
+
+//send OTP to verify user
+export const sendOTP = async ({ _id, email }, res) => {
+  try {
+    //create otp 4 digit
+    const OTP = Math.floor(1000 + Math.random() * 9000);
 
     //send email user config
     const transporter = nodemailer.createTransport({
@@ -47,85 +65,167 @@ export const singUp = async (req, res) => {
       to: email,
       subject: "Verify Your Email",
       html: `
-           <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta http-equiv="X-UA-Compatible" content="IE=edge">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Document</title>
-            <style>
-                .link{
-                    color: blue;
-                    padding: 15px 30px;
-                    border: none;
-                    border-radious:16px;
-                }
-                .title{
-                  text-align:center;
-                  font-size:40px;
-                }
-            </style>
-        </head>
-        <body>
-            <h1 class="title">verified email address</h1>
-            <a href=${sendLink} class="link">varefied Link here</a>
-            <p>Note this link valid for 10 minutes</p>
-        </body>
-        </html>`,
+         <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Document</title>
+          <style>
+
+              .center {
+                text-align:center;
+              }
+              .text-2xl {
+                font-size:16px;
+              }
+
+              .text-3xl {
+                font-size:30px;
+                font-weight:bold;
+              }
+              .text-2xx{
+                font-size:20px;
+                letter-spacing: 5px;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="text-3xl center">Your OTP Code</div>
+         <div class="center text-2xl">Your OTP Code : <b class="text-2xx">${OTP}</b></div>
+          <div class="center">Note this link valid for 10 minutes</p>
+      </body>
+      </html>`,
     };
 
-    //send user email
     transporter.sendMail(mailOption, async (error, data) => {
       if (error) {
         res.status(400).json({ message: "Something went wrong" });
       } else {
-        //create new user
-        const user = await AuthModel.create({
-          name,
-          email,
-          password: hashPassword,
+        await OtpModel.findOneAndDelete({ userId: _id });
+        await OtpModel.create({
+          otp: OTP,
+          userId: _id,
+          expireIn: Date.now() + 300000,
         });
-
-        //create user token
-        const token = await genAuthToken(user);
-        res
-          .status(200)
-          .json({ token });
       }
     });
   } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
-export const emailVerifier = async (req, res) => {
-  const { token } = req.query;
+//resend OTP code to send user
+export const reSendOTP = async (req, res) => {
+  const { userId, email } = req.body;
+
+  //create otp 4 digit
+  const OTP = Math.floor(1000 + Math.random() * 9000);
+
   try {
-    if (!token) return res.status(400).json({ message: "Invalid URL" });
-    const isValidToken = jwt.verify(token, process.env.JWT_SECRET);
+    //send email user config
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL,
+        pass: process.env.PASSWORD,
+      },
+    });
 
-    if (!isValidToken) return res.status(400).json({ message: "Link Expaird" });
-    const findEmail = await AuthModel.findOne({ email: isValidToken.email });
+    const mailOption = {
+      from: process.env.EMAIL,
+      to: email,
+      subject: "Verify Your Email",
+      html: `
+         <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Document</title>
+          <style>
 
-    await AuthModel.findOneAndUpdate(
-      { _id: findEmail._id },
-      { isVerifier: true }
-    );
+              .center {
+                text-align:center;
+              }
+              .text-2xl {
+                font-size:16px;
+              }
 
-    res.status(200).json({ message: "Email Verification successful" });
+              .text-3xl {
+                font-size:30px;
+                font-weight:bold;
+              }
+              .text-2xx{
+                font-size:20px;
+                letter-spacing: 5px;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="text-3xl center">Your OTP Code</div>
+         <div class="center text-2xl">Your OTP Code : <b class="text-2xx">${OTP}</b></div>
+          <div class="center">Note this link valid for 10 minutes</p>
+      </body>
+      </html>`,
+    };
+
+    transporter.sendMail(mailOption, async (error, data) => {
+      if (error) {
+        res.status(400).json({ message: "Something went wrong" });
+      } else {
+        //delete exist otp
+        await OtpModel.findOneAndDelete({ userId: userId });
+
+        //create new otp
+        await OtpModel.create({
+          otp: OTP,
+          userId: userId,
+          expireIn: Date.now() + 300000,
+        });
+
+        res.status(201).json({ message: "Otp Send Successful" });
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error });
   }
 };
 
+//verify user by OTP code
+export const VerifyOTP = async (req, res) => {
+  const { otp } = req.body;
+
+  if (!otp) return res.status(400).json({ message: "OTP is required" });
+  try {
+    const verifyOTP = await OtpModel.findOne({ otp: otp });
+    if (!verifyOTP)
+      return res.status(400).json({ message: "OTP is not valid" });
+
+    if (verifyOTP.expireIn < Date.now())
+      return res.status(400).json({ message: "OTP time expire" });
+
+    //verify user
+    await AuthModel.findByIdAndUpdate(
+      { _id: verifyOTP.userId },
+      { isVerify: true },
+      { new: true }
+    );
+    res.status(200).json({ message: "OTP login successful" });
+  } catch (error) {
+    res.status(500).json({ message: error });
+  }
+};
+
+//login user
 export const signIn = async (req, res) => {
-  console.log("find user sing",req.body)
   const { email, password } = req.body;
   try {
     const isUserExist = await AuthModel.findOne({ email: email });
 
-    if (!isUserExist.isVerifier)
+    if (!isUserExist.isVerify)
       return res.status(400).json({ message: "you are not verify user" });
 
     if (!isUserExist)
@@ -146,11 +246,51 @@ export const signIn = async (req, res) => {
   }
 };
 
-export const getUser = async (req, res) => {
+export const forgotPasswordEmailVerify = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "email is required" });
   try {
-    const user = await AuthModel.find({});
-    res.status(200).json(user);
+    const isUserExist = await AuthModel.findOne({ email: email });
+    if (!isUserExist)
+      return res.status(400).json({ message: "User not found" });
+
+    //send OTP code to verify user
+    sendOTP({ _id: isUserExist._id, email: isUserExist.email });
+
+    res.status(200).json(isUserExist);
   } catch (error) {
-    res.status(500).json({ message: "Server error" })
+    res.status(500).json({ message: "error", error });
   }
-}
+};
+
+export const changePassword = async (req, res) => {
+  const { email, password, conPassword } = req.body;
+  console.log("body", req.body);
+
+  if (!email || !password || !conPassword)
+    return res.status(400).json({ message: "All field are required" });
+  if (password !== conPassword)
+    return res
+      .status(400)
+      .json({ message: "password and confirm password are not valid" });
+
+  try {
+    const user = await AuthModel.findOne({ email: email });
+    if (!user) res.status(400).json({ message: "User not found" });
+    const isOTPExist = await OtpModel.findOne({ userId: user._id });
+
+    console.log("otp", isOTPExist);
+    if (!isOTPExist?.otp)
+      return res.status(400).json({ message: "OTP not verify" });
+
+    const hashNewPassword = await bcrypt.hash(password, 10);
+    await AuthModel.findByIdAndUpdate(
+      { _id: user._id },
+      { password: hashNewPassword },
+      { new: true }
+    );
+    res.status(200).json({ message: "successful login please" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
